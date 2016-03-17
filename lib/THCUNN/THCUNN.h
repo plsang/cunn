@@ -932,3 +932,15 @@ TH_API void THNN_CudaSpatialMIL_updateGradInput(
           THCudaTensor *gradInput, 
           int mil_type);
 
+TH_API void THNN_CudaMultiLabelCrossEntropyCriterion_updateOutput(
+          THCState *state,
+          THCudaTensor *input,
+          THCudaTensor *target,
+          THCudaTensor *output);
+
+TH_API void THNN_CudaMultiLabelCrossEntropyCriterion_updateGradInput(
+          THCState *state,
+          THCudaTensor *input,
+          THCudaTensor *target,
+          THCudaTensor *gradInput,
+          float loss_weight);
