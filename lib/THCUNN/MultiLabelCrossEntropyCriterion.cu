@@ -61,7 +61,6 @@ void THNN_CudaMultiLabelCrossEntropyCriterion_updateOutput(
     target = THCudaTensor_newContiguous(state, target);
     
     sumarr = THCudaTensor_newClone(state, input);
-    sumarr = THCudaTensor_newContiguous(state, sumarr);
     THCudaTensor_zero(state, output);
     
     input_data = THCudaTensor_data(state, input);
