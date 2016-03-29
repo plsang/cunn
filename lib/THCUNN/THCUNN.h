@@ -922,6 +922,7 @@ TH_API void THNN_CudaSpatialMIL_updateOutput(
           THCState *state, 
           THCudaTensor *input, 
           THCudaTensor *output, 
+          THCudaTensor *mil_indices,
           int mil_type);
 
 TH_API void THNN_CudaSpatialMIL_updateGradInput(
