@@ -5,12 +5,12 @@
 #define MILTYPE_NOR 2
 #define MILTYPE_MAXNOR 3
 
-__global__ void forward_kernel(const int nthreads, const float *input_data, float *output_data, 
+__global__ void forward_kernel(const int nthreads, const float *input_data, float *output_data, float *mil_indices_data,
                                const int batch_size, const int num_channels,
                                const int width, const int height, int mil_type) {
     CUDA_KERNEL_LOOP(index, nthreads) {
         int k, l;
-        long offset;
+        long offset, mil_index;
         float prob, max_prob;
         
         offset = index * width * height;
@@ -18,37 +18,54 @@ __global__ void forward_kernel(const int nthreads, const float *input_data, floa
         switch(mil_type) {
             case MILTYPE_MAX:
                 prob = -FLT_MAX;
+                mil_index = -1;
                 for(k=0; k<height; k++){
                     for(l=0; l<width; l++){
-                        prob = max(prob, input_data[offset]);
+                        if(input_data[offset] > prob){
+                            prob = input_data[offset];
+                            mil_index = k*width+l;
+                        }
                         offset++;
                     }
                 }
                 output_data[index] = prob;
+                mil_indices_data[index] = mil_index;
                 break;
             
             case MILTYPE_NOR:
                 prob = 1.;
+                max_prob = -FLT_MAX;
+                mil_index = -1;
                 for(k=0; k<height; k++){
                     for(l=0; l<width; l++){
                         prob = prob*(1. - input_data[offset]);
+                        if(input_data[offset] > max_prob){
+                            max_prob = input_data[offset];
+                            mil_index = k*width+l;
+                        }
                         offset++;
                     }
                 }
                 output_data[index] = 1. - prob;
+                mil_indices_data[index] = mil_index;
                 break;
             
             case MILTYPE_MAXNOR:
                 prob = 1.;
                 max_prob = -FLT_MAX;
+                mil_index = -1;
                 for(k=0; k<height; k++){
                     for(l=0; l<width; l++){
                         prob = prob*(1. - input_data[offset]);
-                        max_prob = max(max_prob, input_data[offset]);
+                        if(input_data[offset] > max_prob){
+                            max_prob = input_data[offset];
+                            mil_index = k*width+l;
+                        }
                         offset++;
                     }
                 }
                 output_data[index] = max(1. - prob, max_prob);
+                mil_indices_data[index] = mil_index;
                 break;
             
             default:
@@ -104,7 +121,7 @@ __global__ void backward_kernel(const int nthreads, const float *input_data, flo
     }
 }
     
-void THNN_CudaSpatialMIL_updateOutput(THCState *state, THCudaTensor *input, THCudaTensor *output, int mil_type)
+void THNN_CudaSpatialMIL_updateOutput(THCState *state, THCudaTensor *input, THCudaTensor *output, THCudaTensor *mil_indices, int mil_type)
 {
     THCUNN_assertSameGPU(state, 2, input, output);
     
@@ -113,6 +130,7 @@ void THNN_CudaSpatialMIL_updateOutput(THCState *state, THCudaTensor *input, THCu
     long width;
     long height;
     float *input_data, *output_data;
+    float *mil_indices_data;
     int count;
     
     batch_size = input->size[0];
@@ -124,15 +142,17 @@ void THNN_CudaSpatialMIL_updateOutput(THCState *state, THCudaTensor *input, THCu
     
     THCudaTensor_zero(state, output);
     THCudaTensor_resize2d(state, output, batch_size, num_channels);
+    THCudaTensor_resize2d(state, mil_indices, batch_size, num_channels);
     THArgCheck(THCudaTensor_isContiguous(state, output), 2, "Output must be contiguous");
     
     input_data = THCudaTensor_data(state, input);
     output_data = THCudaTensor_data(state, output);
+    mil_indices_data = THCudaTensor_data(state, mil_indices);
     
     count = THCudaTensor_nElement(state, output);
     
     forward_kernel<<< GET_BLOCKS(count), CUDA_NUM_THREADS, 0, THCState_getCurrentStream(state) >>> 
-                (count, input_data, output_data,
+                (count, input_data, output_data, mil_indices_data,
                  batch_size, num_channels, width, height, mil_type);
     
     THCudaTensor_free(state, input);
