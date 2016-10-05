@@ -919,18 +919,18 @@ TH_API void THNN_CudaSpatialReplicationPadding_updateGradInput(THCState *state,
                                                        int padT, int padB);
 
 TH_API void THNN_CudaSpatialMIL_updateOutput(
-          THCState *state, 
-          THCudaTensor *input, 
-          THCudaTensor *output, 
+          THCState *state,
+          THCudaTensor *input,
+          THCudaTensor *output,
           THCudaTensor *mil_indices,
           int mil_type);
 
 TH_API void THNN_CudaSpatialMIL_updateGradInput(
-          THCState *state, 
+          THCState *state,
           THCudaTensor *input,
-          THCudaTensor *output, 
-          THCudaTensor *gradOutput, 
-          THCudaTensor *gradInput, 
+          THCudaTensor *output,
+          THCudaTensor *gradOutput,
+          THCudaTensor *gradInput,
           int mil_type);
 
 TH_API void THNN_CudaMultiLabelCrossEntropyCriterion_updateOutput(
