@@ -68,7 +68,7 @@ __global__ void SpatialFractionalMaxPooling_updateOutput(
     assert(maxIndex != -1);
 
     // +1 for Lua index
-    indices[batch][plane][outputH][outputW] = maxIndex + 1;
+    indices[batch][plane][outputH][outputW] = maxIndex + TH_INDEX_BASE;
     output[batch][plane][outputH][outputW] = maxVal;
   }
 }
@@ -160,6 +160,7 @@ void THNN_CudaSpatialFractionalMaxPooling_updateOutput(
       // dynamic pool width
       SFMP_UPDATE_OUTPUT_CASE(-1);
   }
+  THCudaCheck(cudaGetLastError());
 }
 
 __global__ void SpatialFractionalMaxPooling_updateGradInput(
@@ -176,7 +177,7 @@ __global__ void SpatialFractionalMaxPooling_updateGradInput(
     int outputW = ourOutputPoint % gradOutput.getSize(3);
     int outputH = ourOutputPoint / gradOutput.getSize(3);
 
-    int index = indices[batch][plane][outputH][outputW] - 1;
+    int index = indices[batch][plane][outputH][outputW] - TH_INDEX_BASE;
     assert(index >= 0);
     int inputW = index % gradInput.getSize(3);
     int inputH = index / gradInput.getSize(3);
@@ -244,4 +245,5 @@ void THNN_CudaSpatialFractionalMaxPooling_updateGradInput(
   SpatialFractionalMaxPooling_updateGradInput
     <<<grid, block, 0, THCState_getCurrentStream(state)>>>(
       devGradInput, devGradOutput, devIndices);
+  THCudaCheck(cudaGetLastError());
 }

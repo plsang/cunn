@@ -71,8 +71,8 @@ __global__ void adaptivemaxpool(float *input, float *output, float *indices_x, f
       }
       // Update output and argmax
       *ptr_output = max;
-      *ptr_ind_x = argmax_x + 1;
-      *ptr_ind_y = argmax_y + 1;
+      *ptr_ind_x = argmax_x + TH_INDEX_BASE;
+      *ptr_ind_y = argmax_y + TH_INDEX_BASE;
     }
   }
 }
@@ -122,8 +122,8 @@ __global__ void adaptivemaxgradinput(float *gradInput, float *gradOutput, float 
       float *ptr_ind_y = indices_y + yy*output_w + xx;
       float z = *ptr_gradOutput;
 
-      int argmax_x = (*ptr_ind_x)-1;
-      int argmax_y = (*ptr_ind_y)-1;
+      int argmax_x = (*ptr_ind_x) - TH_INDEX_BASE;
+      int argmax_y = (*ptr_ind_y) - TH_INDEX_BASE;
 
       ptr_gradInput[argmax_x + argmax_y*input_w] += z;
     }
@@ -176,8 +176,8 @@ __global__ void atomicadaptivemaxgradinput(
       float *ptr_ind_y = indices_y + yy*output_w + xx;
       float z = *ptr_gradOutput;
 
-      int argmax_x = (*ptr_ind_x)-1;
-      int argmax_y = (*ptr_ind_y)-1;
+      int argmax_x = (*ptr_ind_x) - TH_INDEX_BASE;
+      int argmax_y = (*ptr_ind_y) - TH_INDEX_BASE;
 
       // atomic add since different threads could update same variable
       atomicAdd(&(ptr_gradInput[argmax_x + argmax_y*input_w]), z);
@@ -223,6 +223,7 @@ void THNN_CudaSpatialAdaptiveMaxPooling_updateOutput(THCState *state, THCudaTens
                                    indices_data+nInputPlane*nOutputCols*nOutputRows, indices_data,
                                    nInputPlane, nInputRows, nInputCols, nOutputRows, nOutputCols,
                                    istride_h, istride_w, istride_d);
+    THCudaCheck(cudaGetLastError());
 
   } else {
     long nInputCols = input->size[3];
@@ -254,15 +255,9 @@ void THNN_CudaSpatialAdaptiveMaxPooling_updateOutput(THCState *state, THCudaTens
                                    indices_data+nbatch*nInputPlane*nOutputCols*nOutputRows, indices_data,
                                    nInputPlane, nInputRows, nInputCols, nOutputRows, nOutputCols,
                                    istride_h, istride_w, istride_d);
+    THCudaCheck(cudaGetLastError());
     // clean
     THCudaTensor_free(state, input);
-  }
-
-  // check for errors
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in SpatialAdaptiveMaxPooling.updateOutput: %s\n", cudaGetErrorString(err));
-    THError("aborting");
   }
 }
 
@@ -314,6 +309,7 @@ void THNN_CudaSpatialAdaptiveMaxPooling_updateGradInput(THCState *state, THCudaT
                                           indices_data+nInputPlane*nOutputCols*nOutputRows, indices_data,
                                           nInputPlane, nInputRows, nInputCols, nOutputRows, nOutputCols);
     }
+    THCudaCheck(cudaGetLastError());
   } else {
     long nInputCols = input->size[3];
     long nInputRows = input->size[2];
@@ -351,17 +347,12 @@ void THNN_CudaSpatialAdaptiveMaxPooling_updateGradInput(THCState *state, THCudaT
                                           indices_data+nbatch*nInputPlane*nOutputCols*nOutputRows, indices_data,
                                           nInputPlane, nInputRows, nInputCols, nOutputRows, nOutputCols);
     }
+    THCudaCheck(cudaGetLastError());
   }
 
   // clean
   THCudaTensor_free(state,gradOutput);
 
-  // check for errors
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in SpatialAdaptiveMaxPooling.updateGradInput: %s\n", cudaGetErrorString(err));
-    THError("aborting");
-  }
 }
 
 #undef CUDA_MAX_THREADS

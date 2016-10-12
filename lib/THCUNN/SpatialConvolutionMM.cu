@@ -10,14 +10,23 @@ void THNN_CudaSpatialConvolutionMM_updateOutput(THCState *state, THCudaTensor *i
     THCUNN_assertSameGPU(state, 2, weight, bias);
   }
   THArgCheck(input->nDimension == 3 || input->nDimension == 4, 2, "3D or 4D (batch mode) tensor is expected");
-  THArgCheck(weight->nDimension == 2, 4, "weight tensor must be 2D (nOutputPlane,nInputPlane*kH*kW)");
   THArgCheck(!bias || weight->size[0] == bias->size[0], 4, "nOutputPlane mismatch in weight and bias");
   THArgCheck(kW > 0 && kH > 0, 8, "kernel size should be greater than zero");
   THArgCheck(dW > 0 && dH > 0, 10, "stride should be greater than zero");
+  THArgCheck(weight->nDimension == 2 || weight->nDimension == 4, 4, "weight tensor should be 2D or 4D");
+
+  int freeWeight = 0;
 
   // Params:
-  int nInputPlane = weight->size[1]/(kH*kW);
+  int nInputPlane = weight->nDimension == 2 ? weight->size[1]/(kH*kW) : weight->size[1];
   int nOutputPlane = weight->size[0];
+
+  if (weight->nDimension == 4) {
+    long s1 = weight->size[0];
+    long s2 = weight->size[1] * weight->size[2] * weight->size[3];
+    weight = THCudaTensor_newWithStorage2d(state, weight->storage, weight->storageOffset, s1, -1, s2, -1);
+    freeWeight = 1;
+  }
 
   int batch = 1;
   if (input->nDimension == 3) {
@@ -75,7 +84,7 @@ void THNN_CudaSpatialConvolutionMM_updateOutput(THCState *state, THCudaTensor *i
 
     // Do GEMM (note: this is a bit confusing because gemm assumes column-major matrices)
     if (bias) {
-      THCudaBlas_gemm(
+      THCudaBlas_Sgemm(
           state,
           't', 'n',
           n_, m_, k_,
@@ -104,7 +113,7 @@ void THNN_CudaSpatialConvolutionMM_updateOutput(THCState *state, THCudaTensor *i
     long k = nInputPlane*kH*kW;
 
     // Do GEMM (note: this is a bit confusing because gemm assumes column-major matrices)
-    THCudaBlas_gemm(
+    THCudaBlas_Sgemm(
         state,
         'n', 'n',
         n, m, k,
@@ -119,6 +128,8 @@ void THNN_CudaSpatialConvolutionMM_updateOutput(THCState *state, THCudaTensor *i
   // Free
   THCudaTensor_free(state, input_n);
   THCudaTensor_free(state, output_n);
+  if (freeWeight)
+    THCudaTensor_free(state, weight);
 
   // Resize output
   if (batch == 0) {
@@ -132,13 +143,21 @@ void THNN_CudaSpatialConvolutionMM_updateGradInput(THCState *state, THCudaTensor
   THCUNN_assertSameGPU(state, 5, input, gradOutput, weight,
                                  gradColumns, gradInput);
   THArgCheck(input->nDimension == 3 || input->nDimension == 4, 2, "3D or 4D (batch mode) tensor is expected");
-  THArgCheck(weight->nDimension == 2, 4, "weight tensor must be 2D (nOutputPlane,nInputPlane*kH*kW)");
   THArgCheck(kW > 0 && kH > 0, 9, "kernel size should be greater than zero");
   THArgCheck(dW > 0 && dH > 0, 11, "stride should be greater than zero");
+  THArgCheck(weight->nDimension == 2 || weight->nDimension == 4, 4, "weight tensor should be 2D or 4D");
 
   // Params
-  int nInputPlane = weight->size[1]/(kW*kH);
+  int nInputPlane = weight->nDimension == 2 ? weight->size[1]/(kW*kH) : weight->size[1];
   int nOutputPlane = weight->size[0];
+
+  int freeWeight = 0;
+  if (weight->nDimension == 4) {
+    long s1 = weight->size[0];
+    long s2 = weight->size[1] * weight->size[2] * weight->size[3];
+    weight = THCudaTensor_newWithStorage2d(state, weight->storage, weight->storageOffset, s1, -1, s2, -1);
+    freeWeight = 1;
+  }
 
   int batch = 1;
   if (input->nDimension == 3) {
@@ -179,7 +198,7 @@ void THNN_CudaSpatialConvolutionMM_updateGradInput(THCState *state, THCudaTensor
     long k = nOutputPlane;
 
     // Do GEMM (note: this is a bit confusing because gemm assumes column-major matrices)
-    THCudaBlas_gemm(
+    THCudaBlas_Sgemm(
         state,
         'n', 't',
         n, m, k,
@@ -202,6 +221,8 @@ void THNN_CudaSpatialConvolutionMM_updateGradInput(THCState *state, THCudaTensor
   // Free
   THCudaTensor_free(state, gradInput_n);
   THCudaTensor_free(state, gradOutput_n);
+  if (freeWeight)
+    THCudaTensor_free(state, weight);
 
   // Resize output
   if (batch == 0) {
@@ -218,14 +239,22 @@ void THNN_CudaSpatialConvolutionMM_accGradParameters(THCState *state, THCudaTens
    THCUNN_assertSameGPU(state, 2, gradWeight, gradBias);
   }
   THArgCheck(input->nDimension == 3 || input->nDimension == 4, 2, "3D or 4D (batch mode) tensor is expected");
-  THArgCheck(gradWeight->nDimension == 2, 4, "gradWeight tensor must be 2D (nOutputPlane,nInputPlane*kH*kW)");
   THArgCheck(!gradBias || gradWeight->size[0] == gradBias->size[0], 4, "nOutputPlane mismatch in gradWeight and gradBias");
   THArgCheck(kW > 0 && kH > 0, 8, "kernel size should be greater than zero");
   THArgCheck(dW > 0 && dH > 0, 10, "stride should be greater than zero");
+  THArgCheck(gradWeight->nDimension == 2 || gradWeight->nDimension == 4, 4, "gradWeight tensor should be 2D or 4D");
 
   // Params
-  int nInputPlane = gradWeight->size[1]/(kW*kH);
+  int nInputPlane = gradWeight->nDimension == 2 ? gradWeight->size[1]/(kW*kH) : gradWeight->size[1];
   int nOutputPlane = gradWeight->size[0];
+
+  int freeWeight = 0;
+  if (gradWeight->nDimension == 4) {
+    long s1 = gradWeight->size[0];
+    long s2 = gradWeight->size[1] * gradWeight->size[2] * gradWeight->size[3];
+    gradWeight = THCudaTensor_newWithStorage2d(state, gradWeight->storage, gradWeight->storageOffset, s1, -1, s2, -1);
+    freeWeight = 1;
+  }
 
   int batch = 1;
   if (input->nDimension == 3) {
@@ -278,7 +307,7 @@ void THNN_CudaSpatialConvolutionMM_accGradParameters(THCState *state, THCudaTens
     long k = columns->size[1];
 
     // Do GEMM (note: this is a bit confusing because gemm assumes column-major matrices)
-    THCudaBlas_gemm(
+    THCudaBlas_Sgemm(
         state,
         't', 'n',
         n, m, k,
@@ -297,7 +326,7 @@ void THNN_CudaSpatialConvolutionMM_accGradParameters(THCState *state, THCudaTens
 
     // Do GEMV (note: this is a bit confusing because gemv assumes column-major matrices)
     if (gradBias) {
-      THCudaBlas_gemv(
+      THCudaBlas_Sgemv(
           state,
           't',
           k_, m_,
@@ -313,6 +342,8 @@ void THNN_CudaSpatialConvolutionMM_accGradParameters(THCState *state, THCudaTens
   // Free
   THCudaTensor_free(state, input_n);
   THCudaTensor_free(state, gradOutput_n);
+  if (freeWeight)
+    THCudaTensor_free(state, gradWeight);
 
   // Resize
   if (batch == 0) {

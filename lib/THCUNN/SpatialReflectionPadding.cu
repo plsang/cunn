@@ -46,7 +46,7 @@ void THNN_CudaSpatialReflectionPadding_updateOutput(THCState *state,
                                                     int padL, int padR,
                                                     int padT, int padB
                                                    ) {
-  THArgCheck(THC_canUse32BitIndexMath(state, input), 2,
+  THArgCheck(TensorUtils<THCudaTensor>::canUse32BitIndexMath(state, input), 2,
              "input tensor must fit into 32-bit index math");
 
   int planeDim = 0;
@@ -94,7 +94,7 @@ void THNN_CudaSpatialReflectionPadding_updateOutput(THCState *state,
 
   SpatialReflectionPadding_updateOutput<<<gridSize, blockSize, 0, THCState_getCurrentStream(state)>>>(
     devInput, devOutput, padT, padB, padL, padR);
-
+  THCudaCheck(cudaGetLastError());
 }
 
 __global__ void SpatialReflectionPadding_updateGradInput(
@@ -139,9 +139,9 @@ void THNN_CudaSpatialReflectionPadding_updateGradInput(THCState *state,
                                                        int padL, int padR,
                                                        int padT, int padB) {
 
-  THArgCheck(THC_canUse32BitIndexMath(state, input), 2,
+  THArgCheck(TensorUtils<THCudaTensor>::canUse32BitIndexMath(state, input), 2,
                 "input tensor must fit into 32-bit index math");
-  THArgCheck(THC_canUse32BitIndexMath(state, gradOutput), 3,
+  THArgCheck(TensorUtils<THCudaTensor>::canUse32BitIndexMath(state, gradOutput), 3,
                 "output gradient tensor must fit into 32-bit index math");
 
   int planeDim = 0;
@@ -177,5 +177,5 @@ void THNN_CudaSpatialReflectionPadding_updateGradInput(THCState *state,
 
   SpatialReflectionPadding_updateGradInput<<<gridSize, blockSize, 0, THCState_getCurrentStream(state)>>>(
     devGradInput, devGradOutput, padT, padB, padL, padR);
-
+  THCudaCheck(cudaGetLastError());
 }

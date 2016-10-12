@@ -7,6 +7,20 @@ const int WARP_SIZE = 32;
 typedef THCDeviceTensor<float, 3> DeviceTensor3;
 typedef THCDeviceTensor<float, 1> DeviceTensor1;
 
+// The maximum number of threads in a block
+const int MAX_BLOCK_SIZE = 512;
+
+// Number of threads in a block given an input size up to MAX_BLOCK_SIZE
+static int getNumThreads(int nElem) {
+  int threadSizes[5] = { 32, 64, 128, 256, MAX_BLOCK_SIZE };
+  for (int i = 0; i != 5; ++i) {
+    if (nElem <= threadSizes[i]) {
+      return threadSizes[i];
+    }
+  }
+  return MAX_BLOCK_SIZE;
+}
+
 // Returns the index of the most significant 1 bit in `val`.
 __device__ __forceinline__ int getMSB(int val) {
   return 31 - __clz(val);
@@ -55,23 +69,20 @@ struct GradOp {
   const DeviceTensor3 gradOutput;
 };
 
-// Sum across NumThreads threads within a warp
+// Sum across all threads within a warp
 static __device__ __forceinline__ float warpSum(float val) {
 #if __CUDA_ARCH__ >= 300
   for (int i = 0; i < getMSB(WARP_SIZE); ++i) {
     val += __shfl_xor(val, 1 << i, WARP_SIZE);
   }
 #else
-  const int MAX_BLOCK_SIZE = 256; // maximum block size this module uses
   __shared__ float values[MAX_BLOCK_SIZE];
-  __syncthreads();
   values[threadIdx.x] = val;
-  __syncthreads();
+  __threadfence_block();
   const int base = (threadIdx.x / WARP_SIZE) * WARP_SIZE;
   for (int i = 1; i < WARP_SIZE; i++) {
     val += values[base + ((i + threadIdx.x) % WARP_SIZE)];
   }
-  __syncthreads();
 #endif
   return val;
 }
@@ -97,6 +108,7 @@ __device__ T reduce(Op op, DeviceTensor3 tensor, int plane) {
 
   // 'transpose', and reduce within warp again
   __shared__ T shared[32];
+  __syncthreads();
   if (threadIdx.x % WARP_SIZE == 0) {
     shared[threadIdx.x / WARP_SIZE] = sum;
   }
@@ -153,7 +165,6 @@ __global__ void BatchNormalizationUpdateOutputInference_kernel(
     float epsilon) {
 
   int plane = blockIdx.x;
-  int batch = blockIdx.y;
 
   float invstd = 1.0f / sqrt(runningVar[plane].ldg() + epsilon);
   float mean = runningMean[plane].ldg();
@@ -161,9 +172,11 @@ __global__ void BatchNormalizationUpdateOutputInference_kernel(
   float beta = bias.numElements() > 0 ? bias[plane].ldg() : 0.0f;
 
   // Write normalized and update the output
-  for (int x = threadIdx.x; x < input.getSize(2); x += blockDim.x) {
-    float inp = input[batch][plane][x].ldg();
-    output[batch][plane][x] = gamma * (inp - mean) * invstd + beta;
+  for (int batch = 0; batch < input.getSize(0); batch++) {
+    for (int x = threadIdx.x; x < input.getSize(2); x += blockDim.x) {
+      float inp = input[batch][plane][x].ldg();
+      output[batch][plane][x] = gamma * (inp - mean) * invstd + beta;
+    }
   }
 }
 
@@ -214,16 +227,6 @@ __global__ void BatchNormalizationUpdateOutput_kernel(
   }
 }
 
-static int getNumThreads(int nElem) {
-  int threadSizes[5] = { 32, 64, 128, 256, 512 };
-  for (int i = 0; i != 5; ++i) {
-    if (nElem <= threadSizes[i]) {
-      return threadSizes[i];
-    }
-  }
-  return 512;
-}
-
 void THNN_CudaBatchNormalization_updateOutput(
   THCState *state, THCudaTensor *input_, THCudaTensor *output_,
   THCudaTensor *weight_, THCudaTensor *bias_, THCudaTensor *runningMean_,
@@ -243,7 +246,7 @@ void THNN_CudaBatchNormalization_updateOutput(
   cudaDeviceProp *prop = THCState_getCurrentDeviceProperties(state);
 
   if (!train) {
-    dim3 blocks(input.getSize(1), input.getSize(0));
+    dim3 blocks(input.getSize(1));
     dim3 threads(getNumThreads(input.getSize(2)));
     BatchNormalizationUpdateOutputInference_kernel<<<blocks, threads, 0, s>>>(
       input, output, runningMean, runningVar, weight, bias, eps);
@@ -254,6 +257,7 @@ void THNN_CudaBatchNormalization_updateOutput(
       input, output, weight, bias, eps, momentum, runningMean, runningVar,
       saveMean, saveStd);
   }
+  THCudaCheck(cudaGetLastError());
 }
 
 __global__ void BatchNormalizationBackward_kernel(
@@ -347,6 +351,7 @@ void THNN_CudaBatchNormalization_backward(
   dim3 blocks(gradOutput.getSize(1));
   dim3 threads(getNumThreads(gradOutput.getSize(2)));
   BatchNormalizationBackward_kernel<<<blocks, threads, 0, s>>>(
-    input, gradOutput, gradInput, gradWeight, gradBias, weight, runningMean, runningVar, 
+    input, gradOutput, gradInput, gradWeight, gradBias, weight, runningMean, runningVar,
     saveMean, saveStd, train, scale, eps);
+  THCudaCheck(cudaGetLastError());
 }

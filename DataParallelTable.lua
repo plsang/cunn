@@ -18,7 +18,7 @@ local DataParallelTable, parent = torch.class('nn.DataParallelTable', 'nn.Contai
 local Impls = {}
 local BasicImpl = torch.class('nn.DataParallelTable.Basic', Impls)
 local ThreadsImpl = torch.class('nn.DataParallelTable.Threads', Impls)
-
+local unpack = unpack and unpack or table.unpack -- lua52 compatibility
 
 -- NCCL does not work when CUDA_LAUNCH_BLOCKING is set
 local cudaLaunchBlocking = os.getenv('CUDA_LAUNCH_BLOCKING') == '1'
@@ -113,9 +113,10 @@ function DataParallelTable:flattenParameters()
       end
       if flattened then
          local pp = torch.CudaTensor(p[1]:storage(), p[1]:storageOffset(),
-                    p[#p]:storageOffset()+p[#p]:numel()-1)
+                    p[#p]:storageOffset()+p[#p]:numel()-p[1]:storageOffset())
          local dpp = torch.CudaTensor(dp[1]:storage(), dp[1]:storageOffset(),
-                     dp[#dp]:storageOffset()+dp[#dp]:numel()-1)
+                     dp[#dp]:storageOffset()+dp[#dp]:numel()
+                      - dp[1]:storageOffset())
          return {pp, dpp}
       else
          return { module:getParameters() }

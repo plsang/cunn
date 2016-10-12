@@ -10,7 +10,7 @@ __global__ void cunn_MultiMarginCriterion_updateOutput_kernel(float *output, flo
   int k = blockIdx.x;
   float *input_k = input + k*dim;
   float *output_k = output + k;
-  int target_k = ((int)target[k])-1;
+  int target_k = ((int)target[k]) - TH_INDEX_BASE;
   float input_target_k = input_k[target_k];
 
   int i_start = threadIdx.x;
@@ -53,7 +53,7 @@ __global__ void cunn_MultiMarginCriterion_updateGradInput_kernel(float *gradInpu
   int k = blockIdx.x;
   float *input_k = input + k*dim;
   float *gradInput_k = gradInput + k*dim;
-  int target_k = ((int)target[k])-1;
+  int target_k = ((int)target[k]) - TH_INDEX_BASE;
   float input_target_k = input_k[target_k];
   float g = (sizeAverage ? 1./((float)(nframe*dim)) : 1./((float)dim));
 
@@ -129,6 +129,7 @@ void THNN_CudaMultiMarginCriterion_updateOutput(THCState *state, THCudaTensor *i
         margin
       );
     }
+    THCudaCheck(cudaGetLastError());
   }
   else if (input->nDimension == 2)
   {
@@ -159,6 +160,7 @@ void THNN_CudaMultiMarginCriterion_updateOutput(THCState *state, THCudaTensor *i
         margin
       );
     }
+    THCudaCheck(cudaGetLastError());
     float sum = THCudaTensor_sumall(state, output_);
     THCudaTensor_set1d(state, output, 0, sum);
     THCudaTensor_free(state, output_);
@@ -167,10 +169,6 @@ void THNN_CudaMultiMarginCriterion_updateOutput(THCState *state, THCudaTensor *i
   {
     THError("vector or matrix expected");
   }
-
-  cudaError errcode = cudaGetLastError();
-  if (errcode != cudaSuccess)
-    THError(cudaGetErrorString(errcode));
 
   THCudaTensor_free(state, input);
   if(weights)
@@ -217,6 +215,7 @@ void THNN_CudaMultiMarginCriterion_updateGradInput(THCState *state, THCudaTensor
         margin
       );
     }
+    THCudaCheck(cudaGetLastError());
   }
   else if (input->nDimension == 2)
   {
@@ -247,15 +246,12 @@ void THNN_CudaMultiMarginCriterion_updateGradInput(THCState *state, THCudaTensor
         margin
       );
     }
+    THCudaCheck(cudaGetLastError());
   }
   else
   {
     THError("vector or matrix expected");
   }
-
-  cudaError errcode = cudaGetLastError();
-  if (errcode != cudaSuccess)
-    THError(cudaGetErrorString(errcode));
 
   THCudaTensor_free(state, input);
   if(weights)

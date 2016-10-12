@@ -8,7 +8,7 @@ __global__ void MaxUnpoolForward(const int nthreads, const Dtype* bottom_data, c
     int c = (index / iwidth / iheight) % channels;
     int n = index / iwidth / iheight / channels;
     top_data += (n*channels + c)*oheight*owidth;
-    int maxind = bottom_mask[index]-1;
+    int maxind = bottom_mask[index] - TH_INDEX_BASE;
 
     top_data[maxind] = bottom_data[index];
   }
@@ -21,7 +21,7 @@ __global__ void MaxUnpoolBackward(const int nthreads, const Dtype* top_diff, con
     int c = (index / iwidth / iheight) % channels;
     int n = index / iwidth / iheight / channels;
     top_diff += (n*channels + c)*oheight*owidth;
-    int maxind = bottom_mask[index]-1;
+    int maxind = bottom_mask[index] - TH_INDEX_BASE;
 
     bottom_diff[index] = top_diff[maxind];
   }
@@ -58,18 +58,13 @@ void THNN_CudaSpatialMaxUnpooling_updateOutput(THCState *state, THCudaTensor *in
   MaxUnpoolForward <<< GET_BLOCKS(count), CUDA_NUM_THREADS, 0, THCState_getCurrentStream(state) >>>
       (count, THCudaTensor_data(state, input), THCudaTensor_data(state, indices),
       batchSize, nInputPlane, nInputRows, nInputCols, oheight, owidth, THCudaTensor_data(state, output));
+  THCudaCheck(cudaGetLastError());
 
   if(input->nDimension == 3)
     THCudaTensor_resize3d(state, output, nInputPlane, oheight, owidth);
 
   THCudaTensor_free(state, input);
 
-  // check for errors
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in SpatialMaxUnpooling.updateOutput: %s\n", cudaGetErrorString(err));
-    THError("aborting");
-  }
 }
 
 void THNN_CudaSpatialMaxUnpooling_updateGradInput(THCState *state, THCudaTensor *input, THCudaTensor *gradOutput, THCudaTensor *gradInput, THCudaTensor *indices, int owidth, int oheight)
@@ -102,13 +97,8 @@ void THNN_CudaSpatialMaxUnpooling_updateGradInput(THCState *state, THCudaTensor 
   MaxUnpoolBackward <<< GET_BLOCKS(count), CUDA_NUM_THREADS, 0, THCState_getCurrentStream(state) >>>
       (count, THCudaTensor_data(state, gradOutput), THCudaTensor_data(state, indices),
       batchSize, nInputPlane, nInputRows, nInputCols, oheight, owidth, THCudaTensor_data(state, gradInput));
+  THCudaCheck(cudaGetLastError());
 
-  // check for errors
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in SpatialMaxUnpooling.updateGradInput: %s\n", cudaGetErrorString(err));
-    THError("aborting");
-  }
   // clean
   THCudaTensor_free(state, input);
   THCudaTensor_free(state, gradOutput);
